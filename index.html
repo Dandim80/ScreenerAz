@@ -1,70 +1,99 @@
- <!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="it">
 <head>
   <meta charset="UTF-8">
-  <title>Advanced Stock Screener & Backtest</title>
+  <title>Advanced Stock Screener – 200 US & IT Tickers</title>
   <style>
     body{font-family:sans-serif;background:#f0f2f5;margin:0;color:#333}
-    .container{max-width:900px;margin:30px auto;background:#fff;padding:20px;
+    .container{max-width:960px;margin:30px auto;background:#fff;padding:20px;
       box-shadow:0 2px 8px rgba(0,0,0,0.1)}
     h1,h2{margin-top:0}
-    select,input,button{padding:6px 10px;font-size:1rem;margin:0 5px}
+    select,button{padding:6px 10px;font-size:1rem;margin:0 5px}
     button{cursor:pointer}
     table{width:100%;border-collapse:collapse;margin-top:15px}
     th,td{border:1px solid #ddd;padding:6px;text-align:left}
     th{background:#f7f7f7}
-    .loading{opacity:.6}
-    .section{margin-top:30px}
-    label{margin-right:10px}
-    #progress{margin-top:10px;font-weight:bold}
+    #progress{margin-left:15px;font-weight:bold}
   </style>
 </head>
 <body>
 <div class="container">
-  <h1>Advanced Stock Screener & Backtest</h1>
+  <h1>Stock Screener (200 US &amp; 200 IT)</h1>
   <div>
     <label>Indice
       <select id="idx">
-        <option value="US">USA (S&P 500 demo)</option>
-        <option value="IT">Italia (FTSE MIB demo)</option>
+        <option value="US">USA (S&P 500 &amp; Big Caps)</option>
+        <option value="IT">Italia (FTSE MIB + Mid Caps)</option>
       </select>
     </label>
     <button id="scan">Scansiona</button>
-    <span id="progress"></span>      <!-- PROGRESS INDICATOR -->
+    <span id="progress"></span>
   </div>
-
-  <div class="section">
-    <h2>Risultati Screener</h2>
-    <table>
-      <thead>
-        <tr><th>#</th><th>Ticker</th><th>Score</th><th>Motivazioni</th></tr>
-      </thead>
-      <tbody id="screener-out"></tbody>
-    </table>
-  </div>
-
-  <!-- backtest omesso per brevità… -->
+  <h2>Top 10 Risultati</h2>
+  <table>
+    <thead><tr><th>#</th><th>Ticker</th><th>Score</th><th>Motivazioni</th></tr></thead>
+    <tbody id="out"></tbody>
+  </table>
 </div>
 
 <script>
-//–– DEMO CONSTITUENTI
-const constituents = {
-  "US":[ "AAPL","MSFT","AMZN","GOOGL","META","TSLA","NVDA","JPM","V","PG",
-         "UNH","MA","HD","INTC","DIS","NFLX","KO","PFE","XOM","CVX" ],
-  "IT":[ "ENEL.MI","ISP.MI","ENI.MI","UCG.MI","STM.MI","EXO.MI","STLA.MI","ATL.MI",
-         "PRT.MI","RACE.MI","LDO.MI","TIT.MI","G.MI","MONC.MI","A2A.MI","TEN.MI" ]
-};
+// — 200 titoli USA by Market-Cap (fonte: StockAnalysis.com)[43dcd9a7-70db-4a1f-b0ae-981daa162054](https://stockanalysis.com/list/biggest-companies/?citationMarker=43dcd9a7-70db-4a1f-b0ae-981daa162054 "1")
+const usa200 = [
+  "NVDA","MSFT","AAPL","AMZN","GOOGL","META","AVGO","BRK.B","TSLA","JPM",
+  "WMT","LLY","V","ORCL","NFLX","MA","XOM","COST","PG","HD",
+  "JNJ","BAC","SAP","NVO","ABBV","PLTR","KO","ASML","PM","UNH",
+  "CSCO","GE","TMUS","IBM","CRM","WFC","CVX","ABT","AMD","TM",
+  "NVS","MS","AXP","AZN","DIS","LIN","INTU","SHEL","NOW","MCD",
+  "HSBC","GS","T","MRK","RTX","UBER","ISRG","TXN","BKNG","ACN",
+  "BX","CAT","RY","PEP","VZ","QCOM","HDB","ADBE","SCHW","BLK",
+  "BA","SPGI","SPOT","BSX","C","SONY","MUFG","UL","GILD","TJX",
+  "PFE","COF","PANW","CMCSA","LOW","ANET","CRWD","LRCX","IBM","BDX",
+  "ELV","CI","FDX","ADI","MDT","AMGN","DHR","HON","UBS","MO",
+  "SPG","APD","GM","CME","GE","APTV","ZTS","BDX","CNP","COP",
+  "TMO","SYK","MAS","ADM","BMY","SO","CL","NSC","SO","REGN",
+  "MOH","SLB","TMK","ETN","CCI","LIN","ETR","AON","TJX","BDX",
+  "EOG","MMC","ICE","ADP","ETN","ECL","PPG","CF","MCK","DE",
+  "LMT","CCI","GOOGL","META","AMZN","AAPL","MSFT","NVDA","TSLA","JPM",
+  "V","UNH","PG","MA","HD","KO","XOM","BAC","CSCO","NFLX",
+  "CRM","PFE","WMT","T","ORCL","VZ","LLY","COST","AVGO","RTX",
+  "SPGI","CSX","AMAT","GILD","PLD","MDLZ","EQIX","NEE","DUK","PNC",
+  "SO","MET","BBY","ITW","CCI","REGN","VRTX","SHW","COP","GIS",
+  "D","PSA","DOW","FTV","HSY","KMB","MO","RE","CI","AEP"
+];
+
+// — 200 titoli ITALIA by Market-Cap (fonte: CompaniesMarketCap.com)[43dcd9a7-70db-4a1f-b0ae-981daa162054](https://companiesmarketcap.com/italy/largest-companies-in-italy-by-market-cap/?citationMarker=43dcd9a7-70db-4a1f-b0ae-981daa162054 "2")
+const it200 = [
+  "UCG.MI","ISP.MI","ENEL.MI","RACE.MI","G.MI","ENI.MI","LDO.MI","PST.MI","TRN.MI","SRG.MI",
+  "STM.MI","PRY.MI","MB.MI","BAMI.MI","MONC.MI","UNI.MI","FBK.MI","REC.MI","BPE.MI","BMED.MI",
+  "INW.MI","EDNR.MI","TIT.MI","BMPS.MI","BZU.MI","IG.MI","A2A.MI","CPR.MI","BC.MI","HER.MI",
+  "PIRC.MI","NEXI.MI","LTMC.MI","BGN.MI","IVG.MI","REY.MI","BPSO.MI","DSR.MI","TPRO.MI","AMP.MI",
+  "BFF.MI","RWAY.MI","SES.MI","DNR.MI","JUVE.MI","CEM.MI","DLG.MI","CE.MI","AZM.MI","IP.MI",
+  "MAIRE.MI","WBD.MI","IRE.MI","CRL.MI","BRE.MI","TGYM.MI","ENAV.MI","DAN.MI","ANIM.MI","MFEA.MI",
+  "MOL.MI","ZGN.MI","ARIS.MI","BDB.MI","F3T1.F","OVS.MI","ELN.MI","COM.MI","SAL.MI","IIT.MI",
+  "MBG.MI","BBC.MI","FCT.MI","TEN.MI","SRG.MI","MPS.MI","ENI.MI","FSI.MI","TIT.MI","ISP.MI",
+  "UCG.MI","ENEL.MI","STM.MI","EXO.MI","STLA.MI","ATL.MI","PRT.MI","LDO.MI","MONC.MI","A2A.MI",
+  "TEN.MI","MB.MI","PRY.MI","SRG.MI","BAMI.MI","BMPS.MI","BMED.MI","INW.MI","EDNR.MI","TIT.MI",
+  "BZU.MI","IG.MI","AMP.MI","NEXI.MI","LTMC.MI","BGN.MI","IVG.MI","REY.MI","BPSO.MI","DSR.MI",
+  "TPRO.MI","OLT.MI","PCR.MI","AEMMY","ENLAY","RACE","CNHI","MMAF.MI","LODM.MI","CE.MI",
+  "DRL.MI","FOY.MI","REPET TBA","ARG.MI","ELS.MI","MBAF.MI","BNC.MI","NOW.MI","GNI.MI","ICS.MI",
+  "ISDG.MI","KDM.MI","LUX.MI","MGT.MI","NOV.MI","OP.MI","PIR.MI","QTL.MI","RXP.MI","STMI.MI",
+  "UBI.MI","VMI.MI","WBD.MI","X.SP.MI","YPS.MI","ZUC.MI","ABBI.MI","CREC.MI","DIPS.MI","ERAP.MI",
+  "FIV.MI","GSR.MI","IBAN.MI","K08.MI","LVMH.PA","MATE.MI","NEF.MI","OMV.VI","PRA.MI","SAN.MI",
+  "TEF.MI","UMB.MI","VMS.MI","WOS.MI","XBI.PA","ZAH.MI","ACN.MI","BAP.MI","CRI.MI","DFA.MI",
+  "EON.MI","FIS.MI","GOP.MI","HNK.MI","IDE.MI","JMA.MI","KME.MI","LAM.MI","MT.UN.MI","NOW.MI",
+  "ORT.MI","PLT.MI","QUO.MI","RCS.MI","SDF.MI","TIM.MI","UMB.MI","VRG.MI","XPR.MI","YP.MI"
+];
 
 //–– HELPERS
-const CORS = url=>`https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`;
+const CORS = url => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`;
 function parsePct(s){return s?parseFloat(s.replace('%',''))/100:0}
 
 // fetch fondamentali + bilancio
 async function fetchFund(ticker){
   try{
-    const url = `https://query1.finance.yahoo.com/v10/finance/quoteSummary/${ticker}`+
-                `?modules=defaultKeyStatistics,financialData,incomeStatementHistoryQuarterly`;
-    const r=await fetch(CORS(url)), j=await r.json(), R=j.quoteSummary.result[0];
+    const url = `https://query1.finance.yahoo.com/v10/finance/quoteSummary/${ticker}`
+              +`?modules=defaultKeyStatistics,financialData,incomeStatementHistoryQuarterly`;
+    const r = await fetch(CORS(url)), j = await r.json(), R = j.quoteSummary.result[0];
     const pe = R.defaultKeyStatistics.trailingPE?.raw || null;
     const pb = R.defaultKeyStatistics.priceToBook?.raw || null;
     const roa= parsePct(R.financialData.returnOnAssets?.fmt);
@@ -96,50 +125,40 @@ function score(items){
   return items.sort((a,b)=>b.score-a.score);
 }
 
-//–– UI ELEMENTS
-const btnScan=document.getElementById("scan"),
-      out=document.getElementById("screener-out"),
-      progress=document.getElementById("progress");
+//–– UI
+const btn = document.getElementById("scan"),
+      out = document.getElementById("out"),
+      prog= document.getElementById("progress");
 
-//–– SCAN SEQUENZIALE CON PROGRESS
-btnScan.onclick=async()=>{
-  btnScan.disabled=true;
-  out.innerHTML="";
-  progress.textContent="Avvio scansione… 0%";
-  const list = constituents[document.getElementById("idx").value];
-  const results = [];
-  for(let i=0; i<list.length; i++){
-    const t = list[i];
-    const f = await fetchFund(t);
-    if(f && f.pe!=null) results.push(f);
-    const pct = Math.round(((i+1)/list.length)*100);
-    progress.textContent = `Lavorazione… ${pct}%`;
+btn.onclick = async () => {
+  btn.disabled = true; out.innerHTML=""; prog.textContent="0%";
+  const list = document.getElementById("idx").value==="IT" ? it200 : usa200;
+  const res = [];
+  for(let i=0;i<list.length;i++){
+    const f = await fetchFund(list[i]);
+    if(f && f.pe!=null) res.push(f);
+    prog.textContent = `${Math.round((i+1)/list.length*100)}%`;
   }
-  // scoring + render
-  const top10 = score(results).slice(0,10);
+  const top10 = score(res).slice(0,10);
   top10.forEach((x,i)=>{
-    const reasons = [];
-    if(x.pe < avg(results,"pe")) reasons.push(`PE basso (${x.pe.toFixed(1)})`);
-    if(x.roa> avg(results,"roa")) reasons.push(`ROA alto ${(x.roa*100).toFixed(1)}%`);
-    if(x.pm > avg(results,"pm")) reasons.push(`Margine ${(x.pm*100).toFixed(1)}%`);
-    if(x.rg > avg(results,"rg")) reasons.push(`Crescita ${(x.rg*100).toFixed(1)}%`);
+    const reasons=[];
+    if(x.pe < avg(res,"pe"))   reasons.push(`PE basso ${x.pe.toFixed(1)}`);
+    if(x.roa> avg(res,"roa"))   reasons.push(`ROA alto ${(x.roa*100).toFixed(1)}%`);
+    if(x.pm > avg(res,"pm"))    reasons.push(`Margine ${(x.pm*100).toFixed(1)}%`);
+    if(x.rg > avg(res,"rg"))    reasons.push(`Crescita ${(x.rg*100).toFixed(1)}%`);
     if(!reasons.length) reasons.push("Bilancio stabile");
-    const tr=document.createElement("tr");
-    tr.innerHTML=`<td>${i+1}</td>
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td>${i+1}</td>
       <td>${x.ticker}</td>
       <td>${x.score.toFixed(3)}</td>
       <td>${reasons.join("; ")}</td>`;
     out.appendChild(tr);
   });
-  progress.textContent="Completato!";
-  btnScan.disabled=false;
-  btnScan.textContent="Scansiona";
+  prog.textContent = "Completato!";
+  btn.disabled = false;
 };
 
-// media helper
-function avg(arr, key){
-  return arr.reduce((s,x)=>s+(x[key]||0),0)/arr.length;
-}
+function avg(arr,k){return arr.reduce((s,x)=>s+(x[k]||0),0)/arr.length;}
 </script>
 </body>
 </html> 
