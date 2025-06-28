@@ -1,0 +1,210 @@
+ <!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <title>Advanced Stock Screener & Backtest</title>
+  <style>
+    body{font-family:sans-serif;background:#f0f2f5;margin:0;color:#333}
+    .container{max-width:900px;margin:30px auto;background:#fff;padding:20px;
+      box-shadow:0 2px 8px rgba(0,0,0,0.1)}
+    h1,h2{margin-top:0}
+    select,input,button{padding:6px 10px;font-size:1rem;margin:0 5px}
+    button{cursor:pointer}
+    table{width:100%;border-collapse:collapse;margin-top:15px}
+    th,td{border:1px solid #ddd;padding:6px;text-align:left}
+    th{background:#f7f7f7}
+    .loading{opacity:.6}
+    .section{margin-top:30px}
+    label{margin-right:10px}
+  </style>
+</head>
+<body>
+<div class="container">
+  <h1>Advanced Stock Screener & Backtest</h1>
+  <div>
+    <label>Indice
+      <select id="idx">
+        <option value="US">USA (S&P 500 demo)</option>
+        <option value="IT">Italia (FTSE MIB demo)</option>
+      </select>
+    </label>
+    <button id="scan">Scansiona</button>
+  </div>
+
+  <div class="section">
+    <h2>Risultati Screener</h2>
+    <table>
+      <thead>
+        <tr><th>#</th><th>Ticker</th><th>Score</th><th>Motivazioni</th></tr>
+      </thead>
+      <tbody id="screener-out"></tbody>
+    </table>
+  </div>
+
+  <div class="section">
+    <h2>Backtest Personalizzato</h2>
+    <div>
+      <label>Start<input type="date" id="start"></label>
+      <label>End<input type="date" id="end"></label>
+      <button id="bt-test">Esegui Backtest</button>
+    </div>
+    <p>Investimento ipotetico: <strong>$1 000</strong> equamente ripartiti sulle Top 10 SCELTE.</p>
+    <table>
+      <thead>
+        <tr>
+          <th>#</th><th>Ticker</th><th>Score</th><th>Return %</th><th>Valore Finale ($)</th>
+        </tr>
+      </thead>
+      <tbody id="bt-out"></tbody>
+    </table>
+    <p id="bt-summary"></p>
+  </div>
+</div>
+
+<script>
+//–– DEMO CONSTITUENTI
+const constituents = {
+  "US":[ "AAPL","MSFT","AMZN","GOOGL","META","TSLA","NVDA","JPM","V","PG",
+         "UNH","MA","HD","INTC","DIS","NFLX","KO","PFE","XOM","CVX" ],
+  "IT":[ "ENEL.MI","ISP.MI","ENI.MI","UCG.MI","STM.MI","EXO.MI","STLA.MI","ATL.MI",
+         "PRT.MI","RACE.MI","LDO.MI","TIT.MI","G.MI","MONC.MI","A2A.MI","TEN.MI" ]
+};
+
+//–– HELPERS
+const CORS = url=>`https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`;
+function parsePct(s){return s?parseFloat(s.replace('%',''))/100:0}
+
+// fetch fondamentali + bilancio
+async function fetchFund(ticker){
+  try{
+    const url = `https://query1.finance.yahoo.com/v10/finance/quoteSummary/${ticker}?modules=defaultKeyStatistics,financialData,incomeStatementHistoryQuarterly`;
+    const r=await fetch(CORS(url)), j=await r.json(), R=j.quoteSummary.result[0];
+    const pe = R.defaultKeyStatistics.trailingPE?.raw || null;
+    const pb = R.defaultKeyStatistics.priceToBook?.raw || null;
+    const roa= parsePct(R.financialData.returnOnAssets?.fmt);
+    const de = parseFloat(R.financialData.debtToEquity?.fmt)||0;
+    // profit margin ultimo trimestre
+    const inc=R.incomeStatementHistoryQuarterly.incomeStatementHistory[0];
+    const pm = inc.netIncome?.raw/inc.totalRevenue?.raw||0;
+    // revenue growth q/q
+    const prev=R.incomeStatementHistoryQuarterly.incomeStatementHistory[1];
+    const rg = prev?((inc.totalRevenue.raw/prev.totalRevenue.raw)-1):0;
+    return {ticker,pe,pb,roa,de,pm,rg};
+  } catch(e){ console.warn("skip",ticker); return null;}
+}
+
+// scoring composito
+function score(items){
+  // medie
+  const avg = items.reduce((a,x)=>({
+    pe:a.pe+(x.pe||0), pb:a.pb+(x.pb||0),
+    roa:a.roa+x.roa, de:a.de+x.de,
+    pm:a.pm+x.pm, rg:a.rg+x.rg
+  }),{pe:0,pb:0,roa:0,de:0,pm:0,rg:0});
+  for(let k in avg) avg[k]/=items.length;
+  // score:  PE⁻¹*20%, PB⁻¹*10%, ROA*20%, DE⁻¹*10%, PM*20%, RG*20%
+  items.forEach(x=>{
+    const sc = (x.pe?1/x.pe:0)*.2 
+             + (x.pb?1/x.pb:0)*.1
+             + x.roa*.2
+             + (x.de?1/x.de:0)*.1
+             + x.pm*.2
+             + x.rg*.2;
+    x.score=sc;
+  });
+  return items.sort((a,b)=>b.score-a.score);
+}
+
+// fetch prezzi storici Yahoo
+async function fetchPrices(ticker, start, end){
+  const p1=Math.floor(start.getTime()/1e3),
+        p2=Math.floor(end.getTime()/1e3);
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}`+
+              `?period1=${p1}&period2=${p2}&interval=1d`;
+  try{
+    const r=await fetch(CORS(url)), j=await r.json(),
+          res=j.chart.result[0],
+          closes=res.indicators.quote[0].close,
+          times=res.timestamp.map(ts=>new Date(ts*1e3));
+    // trova primo prezzo del giorno >= start e ultimo <= end
+    const first=closes.find(c=>c!=null),
+          last=closes.slice().reverse().find(c=>c!=null);
+    return {first,last};
+  }catch{ return null; }
+}
+
+//–– UI ELEMENTS
+const btnScan=document.getElementById("scan"),
+      out=document.getElementById("screener-out"),
+      btnBT =document.getElementById("bt-test"),
+      btOut=document.getElementById("bt-out"),
+      btSum=document.getElementById("bt-summary");
+
+//–– 1) SCAN
+btnScan.onclick=async()=>{
+  btnScan.disabled=true; btnScan.textContent="Carico...";
+  out.innerHTML="";
+  const list=constituents[document.getElementById("idx").value];
+  const data=(await Promise.all(list.map(fetchFund))).filter(x=>x&&x.pe);
+  const top10=score(data).slice(0,10);
+  // render
+  top10.forEach((x,i)=>{
+    const reasons=[];
+    if(x.pe<avg(data,"pe")) reasons.push(`PE basso (${x.pe.toFixed(1)})`);
+    if(x.roa>avg(data,"roa")) reasons.push(`ROA alto ${(x.roa*100).toFixed.pm>avg(data,"pm")) reasons.push(`ProfitMargin ${(x.pm*100).toFixed(1)}%`);
+    if(x.rg>avg(data,"rg")) reasons.push(`RevGrowth ${(x.rg*100).toFixed(1)}%`);
+    if(!reasons.length) reasons.push("Bilancio stabile");
+    const tr=document.createElement("tr");
+    tr.innerHTML=`<td>${i+1}</td>
+      <td>${x.ticker}</td>
+      <td>${x.score.toFixed(3)}</td>
+      <td>${reasons.join("; ")}</td>`;
+    out.appendChild(tr);
+  });
+  btnScan.disabled=false; btnScan.textContent="Scansiona";
+};
+
+// calcola media su campo
+function avg(arr, key){
+  return arr.reduce((s,x)=>s+(x[key]||0),0)/arr.length;
+}
+
+//–– 2) BACKTEST
+btnBT.onclick=async()=>{
+  btSum.textContent="";
+  btOut.innerHTML="";
+  const sd=document.getElementById("start").value,
+        ed=document.getElementById("end").value;
+  if(!sd||!ed){ alert("Seleziona date"); return;}
+  const start=new Date(sd), end=new Date(ed);
+  btnBT.disabled=true; btnBT.textContent="Calcolo...";
+  // ricalcola screener (usiamo i fondamentali correnti)
+  const list=constituents[document.getElementById("idx").value];
+  const data=(await Promise.all(list.map(fetchFund))).filter(x=>x&&x.pe);
+  const top10=score(data).slice(0,10);
+
+  // fetch prezzi e calcola performance
+  let totValue=0;
+  const invest=1000/top10.length;
+  for(let i=0;i<top10.length;i++){
+    const x=top10[i],
+          pr=await fetchPrices(x.ticker, start, end);
+    const ret=pr?((pr.last-pr.first)/pr.first):0,
+          final=invest*(1+ret);
+    totValue+=final;
+    const tr=document.createElement("tr");
+    tr.innerHTML=`<td>${i+1}</td>
+      <td>${x.ticker}</td>
+      <td>${x.score.toFixed(3)}</td>
+      <td>${(ret*100).toFixed(2)}%</td>
+      <td>$${final.toFixed(2)}</td>`;
+    btOut.appendChild(tr);
+  }
+  const gain=(totValue/1000-1)*100;
+  btSum.textContent=
+    `Valore finale portafoglio: $${totValue.toFixed(2)} — Rendimento ${gain.toFixed(2)}%`;
+  btnBT.disabled=false; btnBT.textContent="Esegui Backtest";
+};
+</script>
+</body>
+</html>
